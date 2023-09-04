@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import random
 import ssl
 from datetime import datetime
 from time import mktime
@@ -19,7 +20,7 @@ MAX_TOKENS = 2048
 
 class SparkApi:
     def __init__(
-        self, app_id: str, api_key: str, api_secret: str, spark_url: str
+        self, app_id: str, api_key: str, api_secret: str, spark_url: str, uid: str
     ) -> None:
         """初始化"""
         self.app_id: str = app_id
@@ -29,6 +30,7 @@ class SparkApi:
         self.path: str = urlparse(spark_url).path
         self.spark_url: str = spark_url
         self.answer: str = ""
+        self.uid: str = uid
 
     def create_url(self) -> str:
         """生成url"""
@@ -62,9 +64,7 @@ class SparkApi:
         thread.start_new_thread(self.run, (ws,))
 
     def run(self, ws, *args) -> None:
-        data = json.dumps(
-            self.gen_params(appid=ws.appid, domain=ws.domain, question=ws.question)
-        )
+        data = json.dumps(self.gen_params(domain=ws.domain, question=ws.question))
         ws.send(data)
 
     def on_message(self, ws, message) -> None:
@@ -82,11 +82,10 @@ class SparkApi:
             if status == 2:
                 ws.close()
 
-    @staticmethod
-    def gen_params(appid, domain: str, question: str) -> Dict[str, Dict]:
+    def gen_params(self, domain: str, question: str) -> Dict[str, Dict]:
         """通过appid和用户的提问来生成请参数"""
         return {
-            "header": {"app_id": appid, "uid": "1234"},
+            "header": {"app_id": self.app_id, "uid": self.uid},
             "parameter": {
                 "chat": {
                     "domain": domain,
@@ -109,11 +108,14 @@ class V2BotClient:
         self.api_key: str = api_key
         self.domain: str = "generalv2"
         self.spark_url: str = "ws://spark-api.xf-yun.com/v2.1/chat"
+        self.uid = str(random.randint(1000000000, 9999999999))
 
     def ask(self, question: str) -> str:
         """向机器人提问"""
         self.set_question(question)
-        ws_param = SparkApi(self.appid, self.api_key, self.api_secret, self.spark_url)
+        ws_param = SparkApi(
+            self.appid, self.api_key, self.api_secret, self.spark_url, self.uid
+        )
         websocket.enableTrace(False)
         ws_url = ws_param.create_url()
         ws = websocket.WebSocketApp(
@@ -128,6 +130,7 @@ class V2BotClient:
         ws.domain = self.domain
         ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
         self.answer = ws_param.answer
+        self.text.append({"role": "assistant", "content": self.answer})
         return self.answer
 
     def get_length(self) -> int:
@@ -143,6 +146,7 @@ class V2BotClient:
 
 class V1BotClient(V2BotClient):
     """V1版本的接口"""
+
     def __init__(self, appid: str, api_secret: str, api_key: str) -> None:
         super().__init__(appid, api_secret, api_key)
         self.domain = "general"
